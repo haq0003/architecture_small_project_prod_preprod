@@ -52,6 +52,10 @@ Separate Docker networks (prod_net and preprod_net) to isolate environments.
     # https://developers.cloudflare.com/fundamentals/api/get-started/create-token/
     dns_cloudflare_api_token = "YOUR_CLOUDFLARE_API_TOKEN"
 
+# Update code 
+run 
+    grep . -Ri "XXXXXX" 
+and replace XXXXXX with your Domain
 
 # Build and Run the Containers
 
