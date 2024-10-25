@@ -57,6 +57,11 @@ run
     grep . -Ri "XXXXXX" 
 and replace XXXXXX with your Domain
 
+# Create htpasswd
+
+    apt-get install apache2-utils
+    htpasswd -c nginx/.htpasswd YOURLOGIN
+
 # Build and Run the Containers
 
     docker compose up -d
