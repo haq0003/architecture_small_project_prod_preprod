@@ -6,7 +6,7 @@ BACKUP_DIR="/home/XXXXXX"
 MONTH=$(date +%m)
 ARCHIVE_NAME="project-${MONTH}.tar.gz"
 ARCHIVE_PATH="${BACKUP_DIR}/${ARCHIVE_NAME}"
-FTP_SERVER="dedibackup-dc3.online.net"
+FTP_SERVER="XXXXXXXX-dc3.online.net"
 CONFIG_FILE="/home/XXXXXX/projects/XXXXXX.com/.env"
 
 
