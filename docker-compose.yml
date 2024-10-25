@@ -1,0 +1,115 @@
+version: '3.3'
+
+networks:
+  prod_net:
+  preprod_net:
+
+services:
+
+  # MariaDB service for production environment
+  mariadb-prod:
+    image: bitnami/mariadb:latest
+    container_name: mariadb-prod
+    volumes:
+      - ./app/db-data:/bitnami/mariadb
+    environment:
+      - ALLOW_EMPTY_PASSWORD=no
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD_PROD:?MARIADB_ROOT_PASSWORD_PROD is required}
+    networks:
+      - prod_net
+    restart: unless-stopped
+
+  # MariaDB service for pre-production environment
+  mariadb-preprod:
+    image: bitnami/mariadb:latest
+    container_name: mariadb-preprod
+    volumes:
+      - ./app-preprod/db-data:/bitnami/mariadb
+    environment:
+      - ALLOW_EMPTY_PASSWORD=no
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD_PREPROD:?MARIADB_ROOT_PASSWORD_PREPROD is required}
+    networks:
+      - preprod_net
+    restart: unless-stopped
+
+
+  # PHP-Apache service for production environment
+  php-apache:
+    build: ./app/.
+    container_name: php-apache
+    volumes:
+      - ./app/www:/var/www/html/public
+      - ./app/logs:/var/log/apache2
+      - ./app/apache-conf/vhost.conf:/etc/apache2/sites-available/000-default.conf
+    environment:
+      - MARIADB_HOST=mariadb-prod
+    depends_on:
+      - mariadb-prod
+    networks:
+      - prod_net
+    restart: unless-stopped
+
+  # PHP-Apache service for pre-production environment
+  php-apache-preprod:
+    build: ./app-preprod/.
+    container_name: php-apache-preprod
+    volumes:
+      - ./app-preprod/www:/var/www/html/public
+      - ./app-preprod/logs:/var/log/apache2
+      - ./app/apache-conf/vhost.conf:/etc/apache2/sites-available/000-default.conf
+    environment:
+      - MARIADB_HOST=mariadb-preprod
+    depends_on:
+      - mariadb-preprod
+    networks:
+      - preprod_net 
+    restart: unless-stopped
+
+  # Certbot service for SSL certificate management
+  certbot:
+  # Run manually first time : docker-compose run --rm certbot
+    image: certbot/dns-cloudflare:latest
+    container_name: certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/cloudflare.ini:/etc/letsencrypt/cloudflare.ini:ro
+    environment:
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+    entrypoint: |
+      sh -c 'certbot certonly --dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini \
+        -d XXXXXX.com -d www.XXXXXX.com -d preprod.XXXXXX.com \
+        --dns-cloudflare-propagation-seconds 60 \
+        --agree-tos --email haq0003@gmail.com --non-interactive && \
+        trap exit TERM; while :; do \
+          certbot renew --dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini; \
+          sleep 12h & wait $${!}; \
+        done;'
+    networks:
+      - prod_net
+      - preprod_net
+    restart: unless-stopped
+
+
+
+  # Nginx service configuration
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "80:80"    # HTTP port
+      - "443:443"  # HTTPS port
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro                # Nginx configuration
+      - ./nginx/wait-for-certificates.sh:/wait-for-certificates.sh:ro
+      - ./certbot/conf:/etc/letsencrypt                      # Let's Encrypt certificates
+      - ./certbot/www:/var/www/certbot                       # Certbot webroot
+      - ./nginx/logs:/var/log/nginx                                # Nginx logs
+      - ./nginx/.htpasswd:/etc/nginx/.htpasswd:ro                   # HTTP Basic Auth file
+    depends_on:
+      - php-apache         # Depends on production environment
+      - php-apache-preprod # Depends on pre-production environment
+    networks:
+      - prod_net
+      - preprod_net
+    restart: unless-stopped # Automatically restart container unless manually stopped
