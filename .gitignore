@@ -1,0 +1,74 @@
+# Ignore environment variable files
+.env
+.env.*
+
+# Ignore sensitive configuration files
+certbot/cloudflare.ini
+nginx/.htpasswd
+
+# Ignore SSL certificates and private keys
+certbot/conf/
+certbot/www/
+
+# Ignore Docker volumes and data directories
+app/db-data/
+app-preprod/db-data/
+
+# Ignore logs
+logs/
+app/logs/
+app-preprod/logs/
+nginx/logs/
+php-apache/logs/
+php-apache-preprod/logs/
+
+# Ignore composer dependencies (if applicable)
+vendor/
+
+# Ignore node modules (if applicable)
+node_modules/
+
+# Ignore temporary files and swap files
+*.swp
+*.swo
+*.tmp
+*.temp
+*.old
+*.bak
+
+# Ignore OS-generated files
+.DS_Store
+Thumbs.db
+
+# Ignore compiled files
+*.pyc
+__pycache__/
+
+# Ignore IDE specific files
+.idea/
+.vscode/
+*.code-workspace
+
+# Ignore docker-compose override files (if any)
+docker-compose.override.yml
+
+# Ignore backup files
+*.sql
+*.sql.gz
+*.tar
+*.tar.gz
+*.zip
+
+# Ignore Git conflict files
+*.orig
+
+# Ignore coverage reports (if any)
+coverage/
+coverage.*.xml
+
+# Ignore PHPUnit test results (if any)
+testdox.txt
+phpunit.result.cache
+
+# Ignore PHPUnit cache (if any)
+.phpunit.result.cache
