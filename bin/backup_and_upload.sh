@@ -107,11 +107,16 @@ send_error_mail() {
   local subject="$1"
   local body="$2"
 
-  # Construire l'email avec les en-têtes et le corps,
-  # puis l'envoyer à sendmail via STDIN
-  /usr/sbin/sendmail -t <<EOF
-From: ${FROM_EMAIL:-"backup-script@example.com"}
-To: ${ALERT_EMAIL}
+  # Envoi via msmtp, avec variables de .env pour SMTP/port/user/pass
+  cat <<EOF | msmtp \
+    --host="$SMTP_SERVER" \
+    --port="$SMTP_PORT" \
+    --auth=login \
+    --user="$SMTP_USER" \
+    --passwordeval="echo $SMTP_PASS" \
+    -t
+From: $FROM_EMAIL
+To: $ALERT_EMAIL
 Subject: $subject
 
 $body
