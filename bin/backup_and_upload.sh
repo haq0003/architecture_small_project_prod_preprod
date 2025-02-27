@@ -8,6 +8,8 @@
 # - En cas d'échec ou de backup vide, envoie un email d'alerte avec `sendmail`
 # - Lock pour éviter l'exécution concurrente
 
+# ======> apt-get install curl
+
 #.ENV 
 # --- Paramètres SFTP/rclone ---
 #SFTP_HOST=
