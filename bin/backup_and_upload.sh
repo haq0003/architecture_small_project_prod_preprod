@@ -7,6 +7,28 @@
 # - Conserve N versions (rotation)
 # - En cas d'échec ou de backup vide, envoie un email d'alerte avec `sendmail`
 # - Lock pour éviter l'exécution concurrente
+
+#.ENV 
+# --- Paramètres SFTP/rclone ---
+#SFTP_HOST=
+#SFTP_PORT="22"
+#SFTP_USER=
+# rclone obscure XXXXXX
+#SFTP_PASS=
+#SFTP_REMOTE_DIR=
+#KEEP_VERSIONS="5"       # Nombre de versions à conserver
+#BACKUP_SOURCE=
+# --- Paramètres Email SMTP ---
+#SMTP_SERVER=
+#SMTP_PORT=
+#SMTP_USER=
+#SMTP_PASS=
+#ALERT_EMAIL=
+#FROM_EMAIL=
+# --- Autres options (éventuellement) ---
+#LOG_FILE="/var/log/rclone_sftp_backup.log"
+#MAX_RETRIES=3
+#RETRY_DELAY=30
 ###############################################################################
 
 set -e
