@@ -201,7 +201,7 @@ fi
 echo "[INFO] Rotation : on ne garde que $KEEP_VERSIONS backups."
 
 ALL_BACKUPS=$(
-  rclone lsf "${REMOTE_NAME}:$SFTP_REMOTE_DIR" --files-only --format "n" \
+  rclone lsf "${REMOTE_NAME}:$SFTP_REMOTE_DIR" --files-only \
   | grep -E 'backup-[0-9]{8}-[0-9]{6}\.tar(\.gz)?' \
   | sort
 )
