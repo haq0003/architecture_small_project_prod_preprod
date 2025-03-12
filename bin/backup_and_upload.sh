@@ -2,11 +2,17 @@
 ###############################################################################
 # Script de backup "robuste" via rclone (SFTP):
 # - Lit ses variables dans .env
-# - Crée une archive tar.gz en streaming
+# - Crée une archive tar (sans recompression) en streaming
 # - Envoie l'archive via rclone rcat (SFTP)
+# - Limite la sollicitation CPU/disk (nice, ionice, --bwlimit)
 # - Conserve N versions (rotation)
-# - En cas d'échec ou de backup vide, envoie un email d'alerte avec `sendmail`
+# - En cas d'erreur ou backup vide, envoie un email via Mailtrap API (curl)
 # - Lock pour éviter l'exécution concurrente
+#
+# Prérequis :
+#   apt-get install rclone
+#   # si vous voulez la lecture JSON pour la taille : apt-get install jq
+
 
 # ======> apt-get install curl
 
@@ -27,16 +33,7 @@
 #LOG_FILE="/var/log/rclone_sftp_backup.log"
 #MAX_RETRIES=3
 #RETRY_DELAY=30
-###############################################################################
-#!/usr/bin/env bash
-###############################################################################
-# Script de backup "robuste" via rclone (SFTP):
-# - Lit ses variables dans .env
-# - Crée une archive tar.gz en streaming
-# - Envoie l'archive via rclone rcat (SFTP)
-# - Conserve N versions (rotation)
-# - En cas d'erreur ou backup vide, envoie un email via Mailtrap API (curl)
-# - Lock pour éviter l'exécution concurrente
+
 ###############################################################################
 
 set -e
@@ -49,11 +46,10 @@ if [ ! -f "$CONFIG_FILE" ]; then
   echo "[ERROR] Fichier .env introuvable : $CONFIG_FILE"
   exit 1
 fi
-
 source "$CONFIG_FILE"
 
 # Variables par défaut
-: "${LOG_FILE:="/var/log/rclone_sftp_backup.log"}"
+: "${LOG_FILE:="/var/log/rclone_sftp_backup_${CONFIG_FILE##*/}.log"}"
 : "${MAX_RETRIES:=3}"
 : "${RETRY_DELAY:=30}"
 : "${KEEP_VERSIONS:=5}"
@@ -70,7 +66,8 @@ source "$CONFIG_FILE"
 : "${MAILTRAP_API_TOKEN:?Variable MAILTRAP_API_TOKEN non définie dans .env}"
 
 ####################### 2) Lockfile ###########################################
-LOCKFILE="/tmp/rclone_sftp_backup.lock"
+LOCKFILE="/tmp/rclone_sftp_backup_${CONFIG_FILE##*/}.lock"
+
 cleanup_old_lock() {
   if [ -f "$LOCKFILE" ]; then
     local LOCK_MTIME
@@ -92,6 +89,7 @@ cleanup_old_lock() {
 }
 cleanup_old_lock
 
+# On verrouille le script pour éviter les exécutions concurrentes
 exec 200>"$LOCKFILE"
 flock -n 200 || {
   echo "[ERROR] Script déjà en cours d'exécution. Abandon."
@@ -110,7 +108,6 @@ echo "[INFO] Garde $KEEP_VERSIONS versions max"
 send_error_mail() {
   local subject="$1"
   local body="$2"
-
   echo "[INFO] Envoi d'une alerte à $ALERT_EMAIL via Mailtrap..."
   curl --location --request POST "https://send.api.mailtrap.io/api/send" \
     --header "Authorization: Bearer $MAILTRAP_API_TOKEN" \
@@ -126,9 +123,8 @@ send_error_mail() {
       \"subject\": \"${subject}\",
       \"text\": \"${body}\",
       \"category\": \"Backup Notification\"
-    }" || true  # on évite d'interrompre le script si curl échoue
+    }" || true
 }
-
 
 ####################### 5) Config remote rclone (SFTP) ########################
 REMOTE_NAME="sftp_backup"
@@ -148,14 +144,18 @@ fi
 
 ####################### 6) Nom d'archive + upload streaming ####################
 TIMESTAMP="$(date +'%Y%m%d-%H%M%S')"
-ARCHIVE_NAME="backup-${TIMESTAMP}.tar.gz"
+ARCHIVE_NAME="backup-${TIMESTAMP}.tar"
 REMOTE_PATH="$SFTP_REMOTE_DIR/$ARCHIVE_NAME"
 
 attempt=1
 success=false
 while [ $attempt -le $MAX_RETRIES ]; do
   echo "[INFO] Tentative #$attempt : création et upload tar => rclone => SFTP"
-  if tar -czf - "$BACKUP_SOURCE" | rclone rcat "${REMOTE_NAME}:$REMOTE_PATH"; then
+
+  # ici on évite le -z pour ne pas recomprimer si ce sont des images
+  if ionice -c2 -n7 nice -n 10 tar -cf - "$BACKUP_SOURCE" \
+    | rclone rcat "${REMOTE_NAME}:$REMOTE_PATH" --bwlimit 2M
+  then
     echo "[INFO] Transfert réussi (tentative #$attempt)."
     success=true
     break
@@ -176,9 +176,17 @@ if [ "$success" != "true" ]; then
   exit 1
 fi
 
-####################### 7) Vérification de la taille du backup ################
+####################### 7) Vérification de la taille du backup #################
 SIZE_INFO=$(rclone size "${REMOTE_NAME}:$REMOTE_PATH" 2>/dev/null || true)
-REMOTE_SIZE=$(echo "$SIZE_INFO" | grep "Total size" | grep -oE '[0-9]+' || echo 0)
+REMOTE_SIZE=$(echo "$SIZE_INFO" \
+  | grep "Total size" \
+  | grep -oE '[0-9]+' \
+  | paste -sd "" -)
+
+# (Si vous préférez le JSON + jq pour un entier unique, faites:)
+# SIZE_INFO=$(rclone size "${REMOTE_NAME}:$REMOTE_PATH" --json 2>/dev/null || true)
+# REMOTE_SIZE=$(echo "$SIZE_INFO" | jq -r '.bytes')
+
 if [ -z "$REMOTE_SIZE" ] || [ "$REMOTE_SIZE" -eq 0 ]; then
   echo "[ERROR] L'archive est vide (0 octets)."
   rclone delete "${REMOTE_NAME}:$REMOTE_PATH" || true
@@ -192,11 +200,14 @@ fi
 ####################### 8) Rotation des anciennes versions #####################
 echo "[INFO] Rotation : on ne garde que $KEEP_VERSIONS backups."
 
-ALL_BACKUPS=$( rclone lsf "${REMOTE_NAME}:$SFTP_REMOTE_DIR" --files-only --format "t" \
-               | grep -E 'backup-[0-9]{8}-[0-9]{6}\.tar\.gz' \
-               | sort )
+ALL_BACKUPS=$(
+  rclone lsf "${REMOTE_NAME}:$SFTP_REMOTE_DIR" --files-only --format "n" \
+  | grep -E 'backup-[0-9]{8}-[0-9]{6}\.tar(\.gz)?' \
+  | sort
+)
 
 COUNT=$(echo "$ALL_BACKUPS" | wc -l | awk '{print $1}')
+
 if [ "$COUNT" -gt "$KEEP_VERSIONS" ]; then
   TO_REMOVE=$((COUNT - KEEP_VERSIONS))
   echo "[INFO] Il y a $COUNT backups. On supprime $TO_REMOVE plus ancien(s)."
@@ -215,4 +226,8 @@ fi
 echo "[INFO] Sauvegarde finalisée avec succès : $ARCHIVE_NAME"
 echo "[INFO] Fin du script : $(date)"
 echo "======================================================================="
+
+# Décommenter si vous souhaitez supprimer le fichier lock après coup:
+# rm -f "$LOCKFILE"
+
 exit 0
